@@ -1,0 +1,130 @@
+# template.moth's tests: moth test template.test.moth
+
+use "template.moth" as template
+
+to mistake_of with words
+    try
+        template's fill(words, empty dictionary)
+    if it fails with why
+        return why
+    end
+    return "no mistake"
+end
+
+to test_values
+    expect template's fill("Hello, {{ name }}!", record with name "Sam") is "Hello, Sam!"
+    expect template's fill("Hello, {\{name}}!", dictionary where "name" is "Ana") is "Hello, Ana!"
+    expect template's fill("{{ n }} {{ ok }} {{ none }} {{ gone }}", record with n 2.5, ok yes, none nothing) is "2.5 yes  "
+    expect template's fill("{{ xs }}", record with xs (list of 1, 2)) is "[1, 2]"
+    expect template's fill("no tags at all", nothing) is "no tags at all"
+    expect template's fill("", record with a 1) is ""
+    expect template's fill("{{ a }}{{ b }}", record with a "x", b "y") is "xy"
+end
+
+to test_fields_of_fields
+    set values to record with user (record with name "Sam", home (record with town "Pune"))
+    expect template's fill("{{ user.name }} lives in {{ user.home.town }}", values) is "Sam lives in Pune"
+    expect template's fill("[{{ user.age }}][{{ user.name.first }}][{{ nobody.name }}]", values) is "[][][]"
+end
+
+to test_lists
+    set people to list of (record with name "Ana", age 31), (record with name "Bo", age 7)
+    set made to template's fill("{{# people }}{{ name }} is {{ age }}. {{/ people }}", record with people people)
+    expect made is "Ana is 31. Bo is 7. "
+    expect template's fill("{{# xs }}<{{ . }}>{{/ xs }}", record with xs (list of 1, "two", 3)) is "<1><two><3>"
+    expect template's fill("{{# xs }}x{{/ xs }}", record with xs empty list) is ""
+    # the fields around the list can be used inside it
+    set values to record with club "Moth", members (list of (record with name "Ana"), (record with name "Bo"))
+    expect template's fill("{{# members }}{{ name }} of {{ club }};{{/ members }}", values) is "Ana of Moth;Bo of Moth;"
+    # lists in lists
+    set grid to record with rows (list of (list of 1, 2), (list of 3))
+    expect template's fill("{{# rows }}[{{# . }}{{ . }}{{/ . }}]{{/ rows }}", grid) is "[12][3]"
+end
+
+to test_sections_that_show_or_not
+    set t to "{{# on }}shown{{/ on }}"
+    expect template's fill(t, record with on yes) is "shown"
+    expect template's fill(t, record with on no) is ""
+    expect template's fill(t, record with on nothing) is ""
+    expect template's fill(t, empty dictionary) is ""
+    expect template's fill(t, record with on "") is ""
+    expect template's fill(t, record with on 0) is "shown" # only no and nothing are false in Moth
+    expect template's fill("{{# who }}{{ name }}{{/ who }}", record with who (record with name "Sam")) is "Sam"
+    expect template's fill("{{# word }}[{{ . }}]{{/ word }}", record with word "hi") is "[hi]"
+end
+
+to test_inverted_sections
+    set t to "{{# items }}{{ . }} {{/ items }}{{^ items }}no items yet{{/ items }}"
+    expect template's fill(t, record with items empty list) is "no items yet"
+    expect template's fill(t, record with items (list of "a", "b")) is "a b "
+    expect template's fill("{{^ ok }}not ok{{/ ok }}", record with ok no) is "not ok"
+    expect template's fill("{{^ ok }}not ok{{/ ok }}", record with ok yes) is ""
+end
+
+to test_notes_and_lines_alone
+    expect template's fill("a{{! a note }}b", nothing) is "ab"
+    set t to "<ul>\n  {{# xs }}\n  <li>{{ . }}</li>\n  {{/ xs }}\n</ul>\n"
+    expect template's fill(t, record with xs (list of 1, 2)) is "<ul>\n  <li>1</li>\n  <li>2</li>\n</ul>\n"
+    expect template's fill("{{! only a note }}\nline\n", nothing) is "line\n"
+    expect template's fill("start\n{{# hide }}\nhidden\n{{/ hide }}\nend", record with hide no) is "start\nend"
+    # a tag beside other text keeps its line
+    expect template's fill("x {{# a }}y{{/ a }}\n", record with a yes) is "x y\n"
+    # Windows line endings
+    set cr to template's template_return()
+    expect template's fill("{{# a }}" + cr + "\nin" + cr + "\n{{/ a }}" + cr + "\n", record with a yes) is "in" + cr + "\n"
+end
+
+to test_html
+    expect template's fill_html("<b>{{ name }}</b>", record with name "<Moth> & \"co\" 'x'") is "<b>&lt;Moth&gt; &amp; &quot;co&quot; &#39;x&#39;</b>"
+    expect template's fill_html("{{{ raw }}}|{{& raw }}", record with raw "<i>") is "<i>|<i>"
+    expect template's fill("{{ raw }}", record with raw "<i>") is "<i>" # fill doesn't change it
+    expect template's html_safe("a < b") is "a &lt; b"
+end
+
+to test_partials
+    set partials to record with item_line "<li>{{ name }}</li>", header "<h1>{{ title }}</h1>\n"
+    set values to record with title "Notes", things (list of (record with name "a"), (record with name "b"))
+    set t to "{{> header }}<ul>{{# things }}{{> item_line }}{{/ things }}</ul>"
+    expect template's fill(t, values, partials) is "<h1>Notes</h1>\n<ul><li>a</li><li>b</li></ul>"
+    expect template's fill("[{{> missing }}]", values, partials) is "[]"
+    # a partial alone on an indented line has each of its lines indented
+    set nested to dictionary where "two" is "a\nb\n"
+    expect template's fill("<div>\n  {{> two }}\n</div>", nothing, nested) is "<div>\n  a\n  b\n</div>"
+    # a partial that uses itself stops where the values run out
+    set tree to record with name "root", kids (list of (record with name "leaf", kids empty list))
+    set parts to dictionary where "node" is "{{ name }}({{# kids }}{{> node }}{{/ kids }})"
+    expect template's fill("{{> node }}", tree, parts) is "root(leaf())"
+end
+
+to test_names_in
+    expect template's names_in("{{ a }} {{# b }}{{ c }}{{ a }}{{/ b }}{{^ d }}{{/ d }}") is list of "a", "b", "c", "d"
+end
+
+to test_mistakes
+    expect mistake_of("a {{ b") is "line 1: a \{\{ has no }} to end it"
+    expect mistake_of("\n\n{{{ b }}") is "line 3: a \{\{\{ has no }}} to end it"
+    expect mistake_of("{{# a }}\nx") is "line 1: the \{\{# a }} has no \{\{/ a }}"
+    expect mistake_of("{{# a }}\n{{/ b }}") is "line 2: \{\{/ b }} is where \{\{/ a }} should be, to close the \{\{# a }} on line 1"
+    expect mistake_of("x{{/ a }}") is "line 1: \{\{/ a }} closes nothing"
+    expect mistake_of("{{ }}") is "line 1: a tag needs a name between its \{\{ and }}"
+    expect mistake_of("{{=<% %>=}}") is "line 1: changing the \{\{ }} marks isn't something this package does"
+    to speak with self
+        return "hi"
+    end
+    try
+        template's fill("{{ a }}", record with a 1, speak speak)
+        expect no
+    if it fails with why
+        expect why is "can't fill a template from these values: 'as json' can't write a function"
+    end
+end
+
+to test_a_long_list
+    set rows to empty list
+    for each k from 1 to 2000
+        add (record with n k) to rows
+    end
+    set made to template's fill("{{# rows }}{{ n }},{{/ rows }}", record with rows rows)
+    expect length of made is 8893
+    expect items 1 to 6 of made is "1,2,3,"
+end

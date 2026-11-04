@@ -1,0 +1,491 @@
+# Templates: text with {{ name }} in it, filled in from a record or a dictionary, as Mustache fills them:
+# values, fields of fields, parts that repeat for each item of a list or show only when a value is there,
+# and HTML kept safe. In Moth alone, so it works everywhere.
+#
+#   use the package "template" as template
+#   say template's fill("Hello, {{ name }}!", record with name "Sam")                 # Hello, Sam!
+#   set people to list of (record with name "Ana", age 31), (record with name "Bo", age 7)
+#   say template's fill("{{# people }}{{ name }} is {{ age }}\n{{/ people }}", record with people people)
+#   say template's fill_html("<b>{{ name }}</b>", record with name "<Moth>")           # <b>&lt;Moth&gt;</b>
+#   set page to template's fill_html(read "page.html", record with title "Notes", notes notes)
+#
+# What goes between {{ and }}:
+#   {{ name }}            the value, as `say` shows it; nothing, or a name that isn't there, is ""
+#   {{ user.name }}       a field of a field; {{ . }} is the item a {{# list }} is on
+#   {{# name }} ... {{/ name }}   the part between: once for each item of a list (each item's fields can be
+#                         used by their names, and the fields around it too); once, with its fields, for a
+#                         record or a dictionary; once for any other value; and not at all for nothing, no,
+#                         an empty list or ""
+#   {{^ name }} ... {{/ name }}   the part between only when {{# name }} wouldn't show it: "no items yet"
+#   {{! a note }}         left out
+#   {{> name }}           another template, from the partials given: fill(words, values, partials)
+#   {{{ name }}} or {{& name }}   in fill_html, the value as it is, not made safe for HTML
+# A line with only a {{# }}, {{^ }}, {{/ }}, {{! }} or {{> }} on it is left out of what's made, all of it, so a
+# template can put each on a line of its own.
+#
+# fill_html makes each value safe to put in HTML: & < > " and ' are written &amp; &lt; &gt; &quot; and &#39;.
+# html_safe(words) does that to any text. A record's fields are read through JSON, so a record (or a kind's)
+# that holds a function can't be filled from: give it one of just the values.
+#
+# In Moth's own text, a { before a letter starts a value, so write a tag with a space after the {{ as above,
+# or as {\{name}}. A template read from a file needs nothing.
+
+# the template, filled in from the values; partials, if given, is a record or dictionary of templates by name
+to fill with words, values, partials or nothing
+    return template_made(words, values, partials, no)
+end
+
+# the template, filled in from the values, each made safe to put in HTML
+to fill_html with words, values, partials or nothing
+    return template_made(words, values, partials, yes)
+end
+
+# text made safe to put in HTML
+to html_safe with words
+    set made to empty list
+    for each c in "" + words
+        if c is "&"
+            add "&amp;" to made
+        else if c is "<"
+            add "&lt;" to made
+        else if c is ">"
+            add "&gt;" to made
+        else if c is "\""
+            add "&quot;" to made
+        else if c is "'"
+            add "&#39;" to made
+        else
+            add c to made
+        end
+    end
+    return join made with ""
+end
+
+# the names a template uses, each once, in the order they're first used
+to names_in with words
+    set made to empty list
+    template_names(template_read(words), made)
+    return made
+end
+
+to template_names with nodes, made
+    for each node in nodes
+        if node's op is not "text" and node's op is not "partial" and not (node's name is in made)
+            add node's name to made
+        end
+        if node's op is "section" or node's op is "inverted"
+            template_names(node's inside, made)
+        end
+    end
+end
+
+# ---------- filling in ----------
+
+to template_made with words, values, partials, for_html
+    set nodes to template_read(words)
+    set top to template_plain(values, "values")
+    set known to empty dictionary
+    if partials is not nothing
+        set known to template_plain(partials, "partials")
+        if template_sort(known) is not "dictionary"
+            fail with "the partials must be a record or a dictionary of templates by name"
+        end
+    end
+    set state to record with partials known, compiled empty dictionary, for_html for_html, depth 0
+    set made to empty list
+    template_walk(nodes, (list of template_frame(top)), state, made)
+    return join made with ""
+end
+
+# a value as JSON has it, so a record's fields can be found by name: dictionaries, lists, text, numbers,
+# yes, no and nothing
+to template_plain with values, what
+    if values is nothing
+        return empty dictionary
+    end
+    try
+        return json from (values as json)
+    if it fails with why
+        fail with "can't fill a template from these " + what + ": " + why
+    end
+end
+
+to template_frame with value
+    return record with value value, sort template_sort(value)
+end
+
+# what a plain value is: "nothing", "yes or no", "number", "text", "dictionary" or "list"
+to template_sort with value
+    if value is nothing
+        return "nothing"
+    else if value is yes or value is no
+        return "yes or no"
+    end
+    try
+        if value - 0 is value
+            return "number"
+        end
+    if it fails
+        try
+            if length of keys of value is at least 0
+                return "dictionary"
+            end
+        if it fails
+            try
+                if uppercase of value is not nothing
+                    return "text"
+                end
+            if it fails
+                return "list"
+            end
+        end
+    end
+    return "list"
+end
+
+# whether {{# }} shows its part for the value
+to template_shows with frame
+    set sort to frame's sort
+    if sort is "nothing"
+        return no
+    else if sort is "yes or no"
+        return frame's value
+    else if sort is "list" or sort is "text"
+        return length of frame's value is greater than 0
+    end
+    return yes
+end
+
+# what a name means where the frames are: the nearest frame that has its first part, then each part after
+to template_find with name, frames
+    if name is "."
+        return item (length of frames) of frames
+    end
+    set parts to split name by "."
+    set first to item 1 of parts
+    set k to length of frames
+    repeat while k is at least 1
+        set frame to item k of frames
+        if frame's sort is "dictionary" and first is in frame's value
+            set found to template_frame(item first of frame's value)
+            for each part in items 2 to length of parts of parts
+                if found's sort is "dictionary" and part is in found's value
+                    set found to template_frame(item part of found's value)
+                else
+                    return template_frame(nothing)
+                end
+            end
+            return found
+        end
+        set k to k - 1
+    end
+    return template_frame(nothing)
+end
+
+to template_shown with frame
+    if frame's sort is "nothing"
+        return ""
+    else if frame's sort is "text"
+        return frame's value
+    end
+    return "{frame's value}"
+end
+
+to template_walk with nodes, frames, state, made
+    for each node in nodes
+        set op to node's op
+        if op is "text"
+            add node's words to made
+        else if op is "value"
+            set shown to template_shown(template_find(node's name, frames))
+            if state's for_html
+                add html_safe(shown) to made
+            else
+                add shown to made
+            end
+        else if op is "raw"
+            add template_shown(template_find(node's name, frames)) to made
+        else if op is "section"
+            set found to template_find(node's name, frames)
+            if template_shows(found)
+                if found's sort is "list"
+                    for each one in found's value
+                        template_walk(node's inside, template_with(frames, template_frame(one)), state, made)
+                    end
+                else
+                    template_walk(node's inside, template_with(frames, found), state, made)
+                end
+            end
+        else if op is "inverted"
+            if not template_shows(template_find(node's name, frames))
+                template_walk(node's inside, frames, state, made)
+            end
+        else if op is "partial"
+            template_partial(node, frames, state, made)
+        end
+    end
+end
+
+to template_with with frames, frame
+    set more to empty list
+    for each one in frames
+        add one to more
+    end
+    add frame to more
+    return more
+end
+
+to template_partial with node, frames, state, made
+    set known to state's partials
+    if not (node's name is in known)
+        return
+    end
+    if state's depth is greater than 100
+        fail with "line " + node's line + ": the partial '" + node's name + "' uses itself too deeply"
+    end
+    set read_ones to state's compiled
+    if not (node's name is in read_ones)
+        set item node's name of read_ones to template_read("" + item node's name of known)
+    end
+    set inner to empty list
+    set state's depth to state's depth + 1
+    template_walk(item node's name of read_ones, frames, state, inner)
+    set state's depth to state's depth - 1
+    set words to join inner with ""
+    if node's indent is not "" and words is not ""
+        set words to template_indented(words, node's indent)
+    end
+    add words to made
+end
+
+# each line started with the indent, as a partial alone on an indented line is
+to template_indented with words, indent
+    set lines to split words by "\n"
+    set made to empty list
+    set k to 1
+    for each line in lines
+        if k is length of lines and line is ""
+            add line to made
+        else
+            add indent + line to made
+        end
+        add 1 to k
+    end
+    return join made with "\n"
+end
+
+# ---------- reading a template ----------
+
+# a template as a list of nodes: records with an op ("text", "value", "raw", "section", "inverted" or
+# "partial"), what it needs (words, or a name and its line), and for a section the nodes inside it
+to template_read with words
+    set pieces to split ("" + words) by "\{\{"
+    set texts to list of item 1 of pieces
+    set tags to empty list
+    set line to 1 + template_lines_in(item 1 of pieces)
+    for each piece in items 2 to length of pieces of pieces
+        set tag to template_tag(piece, line)
+        add tag to tags
+        add tag's after to texts
+        set line to line + template_lines_in(piece)
+    end
+    template_standalone(texts, tags)
+    # the tree: a stack of the sections still open, each with the nodes inside it so far
+    set top to record with op "section", name "", line 0, inside empty list
+    set open to list of top
+    template_add_text(top's inside, item 1 of texts)
+    set k to 1
+    for each tag in tags
+        set here to item (length of open) of open
+        set op to tag's op
+        if op is "section" or op is "inverted"
+            set node to record with op op, name tag's name, line tag's line, inside empty list
+            set kids to here's inside
+            add node to kids
+            add node to open
+        else if op is "close"
+            if length of open is 1
+                fail with "line " + tag's line + ": \{\{/ " + tag's name + " }} closes nothing"
+            end
+            if here's name is not tag's name
+                fail with "line " + tag's line + ": \{\{/ " + tag's name + " }} is where \{\{/ " + here's name
+                    + " }} should be, to close the \{\{# " + here's name + " }} on line " + here's line
+            end
+            set open to items 1 to length of open - 1 of open
+        else if op is not "comment"
+            set kids to here's inside
+            add tag to kids
+        end
+        add 1 to k
+        set here to item (length of open) of open
+        template_add_text(here's inside, item k of texts)
+    end
+    if length of open is greater than 1
+        set here to item (length of open) of open
+        fail with "line " + here's line + ": the \{\{# " + here's name + " }} has no \{\{/ " + here's name + " }}"
+    end
+    return top's inside
+end
+
+to template_add_text with inside, words
+    if words is not ""
+        add (record with op "text", words words) to inside
+    end
+end
+
+# a tag, from the text after its {{: its op, name and line, and the text after its }}
+to template_tag with piece, line
+    if length of piece is greater than 0 and item 1 of piece is "\{"
+        set at to position of "}}}" in piece
+        if at is 0
+            fail with "line " + line + ": a \{\{\{ has no }}} to end it"
+        end
+        set name to template_trimmed(template_slice(piece, 2, at - 1))
+        return template_tag_of("raw", name, line, template_slice(piece, at + 3, length of piece))
+    end
+    set at to position of "}}" in piece
+    if at is 0
+        fail with "line " + line + ": a \{\{ has no }} to end it"
+    end
+    set inside to template_trimmed(template_slice(piece, 1, at - 1))
+    set after to template_slice(piece, at + 2, length of piece)
+    set op to "value"
+    if length of inside is greater than 0
+        set mark to item 1 of inside
+        if mark is "#"
+            set op to "section"
+        else if mark is "^"
+            set op to "inverted"
+        else if mark is "/"
+            set op to "close"
+        else if mark is "!"
+            set op to "comment"
+        else if mark is ">"
+            set op to "partial"
+        else if mark is "&"
+            set op to "raw"
+        else if mark is "="
+            fail with "line " + line + ": changing the \{\{ }} marks isn't something this package does"
+        end
+    end
+    if op is "comment"
+        return template_tag_of(op, "", line, after)
+    end
+    if op is not "value"
+        set inside to template_trimmed(template_slice(inside, 2, length of inside))
+    end
+    return template_tag_of(op, inside, line, after)
+end
+
+to template_tag_of with op, name, line, after
+    if op is not "comment" and name is ""
+        fail with "line " + line + ": a tag needs a name between its \{\{ and }}"
+    end
+    return record with op op, name name, line line, after after, indent ""
+end
+
+# Mustache's standalone lines: a section, inverted section, close, note or partial alone on its line (with
+# only spaces around it) takes the whole line with it, its new line too
+to template_standalone with texts, tags
+    set count to length of tags
+    set alone to empty list
+    for each k from 1 to count
+        set tag to item k of tags
+        set op to tag's op
+        set can to op is "section" or op is "inverted" or op is "close" or op is "comment" or op is "partial"
+        add (can and template_ends_line(item k of texts, k is 1) and template_starts_line(item (k + 1) of texts,
+            k is count)) to alone
+    end
+    for each k from 1 to count
+        if item k of alone
+            set before to item k of texts
+            set cut to template_last_line_start(before)
+            set tag to item k of tags
+            set tag's indent to template_slice(before, cut, length of before)
+            set item k of texts to template_slice(before, 1, cut - 1)
+            set after to item (k + 1) of texts
+            set item (k + 1) of texts to template_slice(after, template_first_line_end(after) + 1, length of after)
+        end
+    end
+end
+
+# whether only spaces come after the text's last new line (or are all of it, at the template's start)
+to template_ends_line with words, at_start
+    set from to template_last_line_start(words)
+    if from is 1 and not at_start
+        return no
+    end
+    return template_blank(template_slice(words, from, length of words))
+end
+
+# whether only spaces come before the text's first new line (or are all of it, at the template's end)
+to template_starts_line with words, at_end
+    set upto to template_first_line_end(words)
+    if upto is greater than length of words and not at_end
+        return no
+    end
+    return template_blank(template_slice(words, 1, upto - 1))
+end
+
+# where the text's last line starts: just after its last new line, or 1
+to template_last_line_start with words
+    set k to length of words
+    repeat while k is at least 1
+        if item k of words is "\n"
+            return k + 1
+        end
+        set k to k - 1
+    end
+    return 1
+end
+
+# where the text's first new line is, or just past its end
+to template_first_line_end with words
+    set at to position of "\n" in words
+    if at is 0
+        return length of words + 1
+    end
+    return at
+end
+
+# whether the text is only spaces, tabs and carriage returns (which a Windows line ending has before its new
+# line)
+to template_blank with words
+    for each c in words
+        if not (c is " " or c is "\t" or c is template_return())
+            return no
+        end
+    end
+    return yes
+end
+
+# ---------- text ----------
+
+to template_return
+    set one to 1 bytes
+    set byte 1 of one to 13
+    return one as text
+end
+
+to template_lines_in with words
+    return length of (split words by "\n") - 1
+end
+
+to template_slice with words, from, upto
+    if from is greater than upto or from is greater than length of words
+        return ""
+    end
+    return items from to upto of words
+end
+
+to template_trimmed with words
+    set from to 1
+    set upto to length of words
+    repeat while from is at most upto and (item from of words is " " or item from of words is "\t")
+        add 1 to from
+    end
+    repeat while upto is at least from and (item upto of words is " " or item upto of words is "\t")
+        set upto to upto - 1
+    end
+    return template_slice(words, from, upto)
+end
