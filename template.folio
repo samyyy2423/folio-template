@@ -1,12 +1,12 @@
 # Templates: text with {{ name }} in it, filled in from a record or a dictionary, as Mustache fills them:
 # values, fields of fields, parts that repeat for each item of a list or show only when a value is there,
-# and HTML kept safe. In Moth alone, so it works everywhere.
+# and HTML kept safe. In Folio alone, so it works everywhere.
 #
 #   use the package "template" as template
 #   say template's fill("Hello, {{ name }}!", record with name "Sam")                 # Hello, Sam!
 #   set people to list of (record with name "Ana", age 31), (record with name "Bo", age 7)
 #   say template's fill("{{# people }}{{ name }} is {{ age }}\n{{/ people }}", record with people people)
-#   say template's fill_html("<b>{{ name }}</b>", record with name "<Moth>")           # <b>&lt;Moth&gt;</b>
+#   say template's fill_html("<b>{{ name }}</b>", record with name "<Folio>")           # <b>&lt;Folio&gt;</b>
 #   set page to template's fill_html(read "page.html", record with title "Notes", notes notes)
 #
 # What goes between {{ and }}:
@@ -27,7 +27,7 @@
 # html_safe(words) does that to any text. A record's fields are read through JSON, so a record (or a kind's)
 # that holds a function can't be filled from: give it one of just the values.
 #
-# In Moth's own text, a { before a letter starts a value, so write a tag with a space after the {{ as above,
+# In Folio's own text, a { before a letter starts a value, so write a tag with a space after the {{ as above,
 # or as {\{name}}. A template read from a file needs nothing.
 
 # the template, filled in from the values; partials, if given, is a record or dictionary of templates by name

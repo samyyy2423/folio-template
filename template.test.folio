@@ -1,6 +1,6 @@
-# template.moth's tests: moth test template.test.moth
+# template.folio's tests: folio test template.test.folio
 
-use "template.moth" as template
+use "template.folio" as template
 
 to mistake_of with words
     try

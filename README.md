@@ -1,12 +1,12 @@
 # template
 
-Templates for [Moth](https://github.com/samyyy2423/moth): text with `{{ name }}` in it, filled in from a
+Templates for [Folio](https://github.com/samyyy2423/folio): text with `{{ name }}` in it, filled in from a
 record or a dictionary, as [Mustache](https://mustache.github.io/) fills them. Values, fields of fields,
 parts that repeat for each item of a list or show only when a value is there, other templates by name, and
-HTML kept safe. In Moth alone, so it works everywhere Moth does.
+HTML kept safe. In Folio alone, so it works everywhere Folio does.
 
 ```text
-moth add template
+folio add template
 ```
 
 ```
@@ -61,15 +61,15 @@ template can put each on a line of its own, as above. A mistake in a template, s
 A record's fields are read through JSON, so a record that holds a function (or a kind's record) can't be
 filled from: give it one of just the values.
 
-In Moth's own text, a `{` before a letter starts a value, so write a tag in a Moth program with a space after
+In Folio's own text, a `{` before a letter starts a value, so write a tag in a Folio program with a space after
 its `{{`, as these do, or as `{\{name}}`. A template read from a file needs nothing.
 
 ## Tests
 
 ```text
-moth test template.test.moth
+folio test template.test.folio
 ```
 
 ## License
 
-Apache License 2.0, as Moth is: see [LICENSE](LICENSE).
+Apache License 2.0, as Folio is: see [LICENSE](LICENSE).
